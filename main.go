@@ -24,8 +24,9 @@ func NewInputTracker() *InputTracker {
 }
 
 func (it *InputTracker) lockScreenAndExit() {
-	fmt.Println("Input detected! Locking screen and exiting...")
-	cmd := exec.Command("pmset", "displaysleepnow")
+	fmt.Println("Input detected! Locking screen and exiting...")	
+	cmd := exec.Command("osascript", "-e", `tell application "System Events" to keystroke "q" using {control down, command down}`)
+
 	err := cmd.Run()
 	if err != nil {
 		log.Printf("Error locking screen: %v", err)
@@ -34,28 +35,23 @@ func (it *InputTracker) lockScreenAndExit() {
 }
 
 func (it *InputTracker) getSystemIdleTime() (float64, error) {
-	// Use ioreg to get system idle time
 	cmd := exec.Command("ioreg", "-c", "IOHIDSystem")
 	output, err := cmd.Output()
 	if err != nil {
 		return 0, err
 	}
 
-	// Parse the output to find HIDIdleTime
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
 		if strings.Contains(line, "HIDIdleTime") {
-			// Extract the number from the line
 			parts := strings.Split(line, "=")
 			if len(parts) > 1 {
 				numStr := strings.TrimSpace(parts[1])
-				// Remove any trailing characters
 				numStr = strings.Fields(numStr)[0]
 				idleTime, err := strconv.ParseFloat(numStr, 64)
 				if err != nil {
 					return 0, err
 				}
-				// Convert from nanoseconds to seconds
 				return idleTime / 1000000000.0, nil
 			}
 		}
@@ -90,7 +86,7 @@ func (it *InputTracker) detectInput() bool {
 }
 
 func (it *InputTracker) monitor() {
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(1000 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
