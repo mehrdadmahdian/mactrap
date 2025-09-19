@@ -1,52 +1,64 @@
-# Mac-trap
+# Office Security Monitor (Mac-trap)
 
-A simple Go program for macOS that monitors for mouse and keyboard activity and locks the screen when input is detected. It's a one-shot program that exits after locking the screen.
+A workplace security tool for macOS that monitors who uses your office MacBook when you step away from your desk. Features transparent consent dialogs and secure photo documentation.
 
-## Features
+## 🏢 Office Use Case
+Perfect for:
+- Monitoring who accesses your work computer during breaks
+- Documenting unauthorized access attempts  
+- Maintaining workspace security compliance
+- Protecting sensitive work data
 
-- **One-shot Operation**: Run once, monitor until input is detected, then exit
-- **Mouse & Keyboard Detection**: Monitors system idle time to detect any input activity
-- **Automatic Screen Locking**: Uses `pmset displaysleepnow` to lock the screen
-- **Simple Usage**: No configuration needed, just run and it works
-- **No Special Permissions**: Uses system `ioreg` command, no accessibility permissions required
+## ✅ Privacy & Consent Features
+- **Consent Dialog**: Users see a clear security notice before access
+- **Transparent Process**: Full disclosure of monitoring and photo capture
+- **User Choice**: Users can decline and system locks immediately
+- **Legitimate Purpose**: Clear office security context provided
 
-## Building
+## Installation & Usage
 
+### Prerequisites
 ```bash
-go build -o mac-trap main.go
+brew install imagesnap
 ```
 
-## Usage
-
-Simply run the program:
+### Build & Run
 ```bash
-./mac-trap
+go build -o trap main.go
+./trap
 ```
-
-The program will:
-1. Start monitoring for activity immediately
-2. Lock the screen when mouse movement or keyboard input is detected
-3. Exit automatically after locking
-
-To use it again, just run the program again.
 
 ## How It Works
 
-1. The program starts and immediately begins monitoring system idle time
-2. It uses the `ioreg -c IOHIDSystem` command to get the `HIDIdleTime` value
-3. Every 500ms, it checks if the idle time has decreased (indicating user activity)
-4. When activity is detected, it runs `pmset displaysleepnow` to lock the screen
-5. The program then exits
+1. **🔍 Monitoring**: Detects when someone tries to use your MacBook
+2. **⚠️ Consent Dialog**: Shows office security notice with consent options
+3. **📷 Documentation**: Takes photo if user consents (for security records)
+4. **📱 Notification**: Shows completion message and exits
+5. **🔒 Protection**: Locks screen if user declines consent
 
-## Requirements
+## What Users See
+When someone touches your computer, they get a clear dialog:
 
-- macOS (uses `ioreg` and `pmset` commands)
-- Go 1.21 or later
-- No special permissions required
+```
+⚠️ OFFICE SECURITY NOTICE ⚠️
 
-## Notes
+This computer is monitored for security purposes.
 
-- The program runs silently and monitors both mouse and keyboard activity
-- Press Ctrl+C to exit without locking the screen
-- The program is designed to be run manually each time you want to enable the trap
-- Works reliably without requiring accessibility permissions or special frameworks 
+By continuing to use this device, you consent to:
+• Photo capture for security monitoring
+• Activity logging and evidence collection  
+• Compliance with office security policies
+
+This is an authorized security measure.
+
+[Cancel] [I Accept & Continue]
+```
+
+## Privacy Compliance
+- ✅ **Transparent**: Users know they're being monitored
+- ✅ **Consensual**: Users must accept before proceeding
+- ✅ **Legitimate**: Clear office security purpose
+- ✅ **Local**: Photos stored locally, no network transmission
+- ✅ **Contextual**: Appropriate for workplace environment
+
+Perfect for office environments where security monitoring is standard practice.

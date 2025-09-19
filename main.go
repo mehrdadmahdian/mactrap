@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -23,14 +23,83 @@ func NewInputTracker() *InputTracker {
 	}
 }
 
-func (it *InputTracker) lockScreenAndExit() {
-	fmt.Println("Input detected! Locking screen and exiting...")	
-	cmd := exec.Command("osascript", "-e", `tell application "System Events" to keystroke "q" using {control down, command down}`)
+func (it *InputTracker) generatePhotoFilename() string {
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	filename := fmt.Sprintf("mac-trap_%s.jpg", timestamp)
 
+	// Create photos directory if it doesn't exist
+	photosDir := "mac-trap-photos"
+	os.MkdirAll(photosDir, 0755)
+
+	return filepath.Join(photosDir, filename)
+}
+
+func (it *InputTracker) takePhoto() error {
+	filename := it.generatePhotoFilename()
+
+	// Use imagesnap with 2 second warmup for better photo quality
+	cmd := exec.Command("imagesnap", "-w", "2", filename)
+
+	fmt.Printf("Tomando foto: %s\n", filename)
 	err := cmd.Run()
 	if err != nil {
-		log.Printf("Error locking screen: %v", err)
+		return fmt.Errorf("error al capturar foto: %v", err)
 	}
+
+	fmt.Printf("Foto guardada: %s\n", filename)
+	return nil
+}
+
+func (it *InputTracker) lockScreen() error {
+	cmd := exec.Command("osascript", "-e", `tell application "System Events" to keystroke "q" using {control down, command down}`)
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("failed to lock screen: %v", err)
+	}
+	return nil
+}
+
+func (it *InputTracker) showStartupNotification() {
+	// AppleScript modal dialog that appears but doesn't block the program
+	script := `display dialog "🛡️ SISTEMA DE SEGURIDAD ACTIVADO
+
+Esta computadora está siendo monitoreada para prevenir acceso no autorizado.
+
+El sistema tomará fotos automáticamente si detecta actividad no autorizada." buttons {"Entendido"} default button "Entendido" with icon caution with title "Monitor de Seguridad"`
+
+	// Run in background - program continues without waiting
+	go exec.Command("osascript", "-e", script).Run()
+}
+
+func (it *InputTracker) handleDetection() {
+	fmt.Println("🚨 ¡ACCESO NO AUTORIZADO DETECTADO!")
+
+	// Start photo capture IMMEDIATELY in parallel
+	photoDone := make(chan bool, 1)
+	go func() {
+		filename := it.generatePhotoFilename()
+		fmt.Printf("📷 Capturando: %s\n", filename)
+		cmd := exec.Command("imagesnap", filename) // No warmup delay
+		err := cmd.Run()
+		if err == nil {
+			fmt.Printf("✅ FOTO GUARDADA: %s\n", filename)
+		}
+		photoDone <- true
+	}()
+
+	// LOCK SCREEN IMMEDIATELY - DON'T WAIT FOR PHOTO
+	fmt.Println("🔒 BLOQUEANDO INMEDIATAMENTE...")
+	it.lockScreen()
+
+	// Wait for photo to complete (max 3 seconds)
+	select {
+	case <-photoDone:
+		fmt.Println("📷 Foto completada")
+	case <-time.After(3 * time.Second):
+		fmt.Println("📷 Foto en proceso...")
+	}
+
+	fmt.Println("✅ Sistema activado. Saliendo...")
 	os.Exit(0)
 }
 
@@ -64,8 +133,7 @@ func (it *InputTracker) detectInput() bool {
 	// Get current system idle time
 	idleTime, err := it.getSystemIdleTime()
 	if err != nil {
-		log.Printf("Error getting system idle time: %v", err)
-		return false
+		return false // Silent error handling
 	}
 
 	// Initialize on first run
@@ -86,25 +154,36 @@ func (it *InputTracker) detectInput() bool {
 }
 
 func (it *InputTracker) monitor() {
-	ticker := time.NewTicker(1000 * time.Millisecond)
+	ticker := time.NewTicker(250 * time.Millisecond) // Check 4x per second for faster response
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
 			if it.detectInput() {
-				it.lockScreenAndExit()
+				it.handleDetection()
 			}
 		}
 	}
 }
 
+func checkImageSnapAvailability() {
+	_, err := exec.LookPath("imagesnap")
+	if err != nil {
+		fmt.Println("⚠️  Cámara deshabilitada (instalar: brew install imagesnap)")
+	} else {
+		fmt.Println("📷 Cámara lista")
+	}
+}
+
 func main() {
-	fmt.Println("Mac-trap starting...")
-	fmt.Println("Monitoring for mouse and keyboard activity. Screen will lock when input is detected.")
-	fmt.Println("Press Ctrl+C to exit without locking.")
+	fmt.Println("🛡️  MONITOR DE SEGURIDAD - Iniciando")
+	checkImageSnapAvailability()
 
 	tracker := NewInputTracker()
+
+	// Show startup notification popup
+	tracker.showStartupNotification()
 
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -112,11 +191,11 @@ func main() {
 
 	go func() {
 		<-sigChan
-		fmt.Println("\nExiting Mac-trap...")
+		fmt.Println("\n🛑 Detenido.")
 		os.Exit(0)
 	}()
 
 	// Start monitoring (this blocks until input is detected)
-	fmt.Println("Monitoring active. Move your mouse or press a key to lock the screen.")
+	fmt.Println("🔍 ACTIVO - Esperando actividad...")
 	tracker.monitor()
 }
