@@ -60,12 +60,12 @@ func (it *InputTracker) lockScreen() error {
 }
 
 func (it *InputTracker) showStartupNotification() {
-	// AppleScript modal dialog that appears but doesn't block the program
-	script := `display dialog "🛡️ SISTEMA DE SEGURIDAD ACTIVADO
+	// AppleScript modal dialog - stays open until user clicks button
+	script := `display dialog "🛡️ BEVEILIGINGSSYSTEEM GEACTIVEERD
 
-Esta computadora está siendo monitoreada para prevenir acceso no autorizado.
+Deze computer wordt gemonitord om ongeautoriseerde toegang te voorkomen.
 
-El sistema tomará fotos automáticamente si detecta actividad no autorizada." buttons {"Entendido"} default button "Entendido" with icon caution with title "Monitor de Seguridad"`
+Het systeem zal automatisch foto's maken als ongeautoriseerde activiteit wordt gedetecteerd." buttons {"Begrepen"} default button "Begrepen" with title "Beveiligingsmonitor"`
 
 	// Run in background - program continues without waiting
 	go exec.Command("osascript", "-e", script).Run()
@@ -177,6 +177,9 @@ func checkImageSnapAvailability() {
 }
 
 func main() {
+	// Wait 5 seconds before starting the application
+	fmt.Println("🛡️  MONITOR DE SEGURIDAD - Iniciando en 5 segundos...")
+
 	fmt.Println("🛡️  MONITOR DE SEGURIDAD - Iniciando")
 	checkImageSnapAvailability()
 
@@ -184,6 +187,7 @@ func main() {
 
 	// Show startup notification popup
 	tracker.showStartupNotification()
+	time.Sleep(3 * time.Second)
 
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)

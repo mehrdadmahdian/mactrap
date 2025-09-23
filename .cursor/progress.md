@@ -1,6 +1,8 @@
 # Progress Status
 
 ## ✅ Working Features
+- **Startup Delay**: 5-second delay after executable launch before monitoring begins
+- **Less Intrusive Notification**: Simplified popup that auto-dismisses after 3 seconds
 - **Input Detection**: Successfully monitors HIDIdleTime via ioreg
 - **Activity Detection**: Reliably detects mouse and keyboard input  
 - **Camera Photo Capture**: Takes timestamped photos using imagesnap with 2s warmup
