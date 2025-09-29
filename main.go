@@ -27,8 +27,17 @@ func (it *InputTracker) generatePhotoFilename() string {
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	filename := fmt.Sprintf("mac-trap_%s.jpg", timestamp)
 
-	// Create photos directory if it doesn't exist
-	photosDir := "mac-trap-photos"
+	// Get the directory where the executable is located
+	executablePath, err := os.Executable()
+	if err != nil {
+		// Fallback to current directory if we can't get executable path
+		executablePath, _ = os.Getwd()
+	} else {
+		executablePath = filepath.Dir(executablePath)
+	}
+
+	// Create photos directory in the executable's directory
+	photosDir := filepath.Join(executablePath, "mac-trap-photos")
 	os.MkdirAll(photosDir, 0755)
 
 	return filepath.Join(photosDir, filename)
