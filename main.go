@@ -12,14 +12,20 @@ import (
 	"time"
 )
 
+const IDLE_THRESHOLD = 60.0 // 10 seconds for testing
+const GRACE_PERIOD = 300.0   // 5 minutes = 300 seconds
+
 type InputTracker struct {
-	lastIdleTime float64
-	initialized  bool
+	lastIdleTime    float64
+	initialized     bool
+	lastLockTime    time.Time
+	inGracePeriod   bool
 }
 
 func NewInputTracker() *InputTracker {
 	return &InputTracker{
-		initialized: false,
+		initialized:   false,
+		inGracePeriod: false,
 	}
 }
 
@@ -27,17 +33,15 @@ func (it *InputTracker) generatePhotoFilename() string {
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	filename := fmt.Sprintf("mac-trap_%s.jpg", timestamp)
 
-	// Get the directory where the executable is located
-	executablePath, err := os.Executable()
+	// Get the current working directory (project directory)
+	workingDir, err := os.Getwd()
 	if err != nil {
-		// Fallback to current directory if we can't get executable path
-		executablePath, _ = os.Getwd()
-	} else {
-		executablePath = filepath.Dir(executablePath)
+		// Fallback to current directory
+		workingDir = "."
 	}
 
-	// Create photos directory in the executable's directory
-	photosDir := filepath.Join(executablePath, "mac-trap-photos")
+	// Create photos directory in the project directory
+	photosDir := filepath.Join(workingDir, "mac-trap-photos")
 	os.MkdirAll(photosDir, 0755)
 
 	return filepath.Join(photosDir, filename)
@@ -49,13 +53,13 @@ func (it *InputTracker) takePhoto() error {
 	// Use imagesnap with 2 second warmup for better photo quality
 	cmd := exec.Command("imagesnap", "-w", "2", filename)
 
-	fmt.Printf("Tomando foto: %s\n", filename)
+	fmt.Printf("Taking photo: %s\n", filename)
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("error al capturar foto: %v", err)
+		return fmt.Errorf("error capturing photo: %v", err)
 	}
 
-	fmt.Printf("Foto guardada: %s\n", filename)
+	fmt.Printf("Photo saved: %s\n", filename)
 	return nil
 }
 
@@ -81,35 +85,37 @@ Het systeem zal automatisch foto's maken als ongeautoriseerde activiteit wordt g
 }
 
 func (it *InputTracker) handleDetection() {
-	fmt.Println("🚨 ¡ACCESO NO AUTORIZADO DETECTADO!")
+	fmt.Println("🚨 UNAUTHORIZED ACCESS DETECTED - LOCKING!")
 
 	// Start photo capture IMMEDIATELY in parallel
 	photoDone := make(chan bool, 1)
 	go func() {
 		filename := it.generatePhotoFilename()
-		fmt.Printf("📷 Capturando: %s\n", filename)
+		fmt.Printf("📷 Capturing: %s\n", filename)
 		cmd := exec.Command("imagesnap", filename) // No warmup delay
 		err := cmd.Run()
 		if err == nil {
-			fmt.Printf("✅ FOTO GUARDADA: %s\n", filename)
+			fmt.Printf("✅ PHOTO SAVED: %s\n", filename)
 		}
 		photoDone <- true
 	}()
 
 	// LOCK SCREEN IMMEDIATELY - DON'T WAIT FOR PHOTO
-	fmt.Println("🔒 BLOQUEANDO INMEDIATAMENTE...")
+	fmt.Println("🔒 LOCKING IMMEDIATELY...")
 	it.lockScreen()
 
 	// Wait for photo to complete (max 3 seconds)
 	select {
 	case <-photoDone:
-		fmt.Println("📷 Foto completada")
+		fmt.Println("📷 Photo completed")
 	case <-time.After(3 * time.Second):
-		fmt.Println("📷 Foto en proceso...")
+		fmt.Println("📷 Photo in progress...")
 	}
 
-	fmt.Println("✅ Sistema activado. Saliendo...")
-	os.Exit(0)
+	// Set grace period - don't lock again immediately after unlock
+	it.lastLockTime = time.Now()
+	it.inGracePeriod = true
+	fmt.Println("⏳ Grace period started (5 minutes)")
 }
 
 func (it *InputTracker) getSystemIdleTime() (float64, error) {
@@ -138,7 +144,7 @@ func (it *InputTracker) getSystemIdleTime() (float64, error) {
 	return 0, fmt.Errorf("could not find HIDIdleTime")
 }
 
-func (it *InputTracker) detectInput() bool {
+func (it *InputTracker) shouldLock() bool {
 	// Get current system idle time
 	idleTime, err := it.getSystemIdleTime()
 	if err != nil {
@@ -152,26 +158,75 @@ func (it *InputTracker) detectInput() bool {
 		return false
 	}
 
-	// If idle time decreased, it means there was user activity
-	if idleTime < it.lastIdleTime {
+	// Check if we're in grace period (1 minute after unlock)
+	if it.inGracePeriod {
+		// If user is active (idle time decreased), exit grace period
+		if idleTime < it.lastIdleTime {
+			it.inGracePeriod = false
+			fmt.Println("✅ Activity detected - grace period cancelled")
+		}
+		// If grace period has lasted 5 minutes, exit it
+		if time.Since(it.lastLockTime) > GRACE_PERIOD*time.Second {
+			it.inGracePeriod = false
+			fmt.Println("✅ Grace period completed - monitoring...")
+		}
+		it.lastIdleTime = idleTime
+		return false
+	}
+
+	// Check if idle time was exceeded and someone just became active
+	// This means unauthorized access attempt!
+	if it.lastIdleTime > IDLE_THRESHOLD && idleTime < it.lastIdleTime {
+		fmt.Println("🚨 ACCESS DETECTED AFTER IDLE PERIOD!")
 		return true
 	}
 
 	// Update last idle time
 	it.lastIdleTime = idleTime
+
+	// Don't auto-lock, just wait for someone to touch the computer
+	// The check above will catch it
 	return false
 }
 
 func (it *InputTracker) monitor() {
-	ticker := time.NewTicker(250 * time.Millisecond) // Check 4x per second for faster response
+	ticker := time.NewTicker(5 * time.Second) // Check every 5 seconds
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			if it.detectInput() {
+			// Display current status
+			it.displayStatus()
+			
+			if it.shouldLock() {
 				it.handleDetection()
+				// Continue monitoring after lock (don't exit)
 			}
+		}
+	}
+}
+
+func (it *InputTracker) displayStatus() {
+	idleTime, err := it.getSystemIdleTime()
+	if err != nil {
+		return
+	}
+
+	if it.inGracePeriod {
+		elapsed := time.Since(it.lastLockTime).Seconds()
+		remaining := GRACE_PERIOD - elapsed
+		if remaining > 0 {
+			fmt.Printf("⏳ Grace period: %.0fs remaining | Idle: %.0fs\n", remaining, idleTime)
+		} else {
+			fmt.Printf("✅ Grace period completed | Idle: %.0fs\n", idleTime)
+		}
+	} else {
+		if idleTime > IDLE_THRESHOLD {
+			fmt.Printf("⚠️  System waiting | Idle: %.0fs | Waiting for activity to lock...\n", idleTime)
+		} else {
+			remaining := IDLE_THRESHOLD - idleTime
+			fmt.Printf("🔍 Monitoring | Idle: %.0fs | Threshold in: %.0fs\n", idleTime, remaining)
 		}
 	}
 }
@@ -179,17 +234,17 @@ func (it *InputTracker) monitor() {
 func checkImageSnapAvailability() {
 	_, err := exec.LookPath("imagesnap")
 	if err != nil {
-		fmt.Println("⚠️  Cámara deshabilitada (instalar: brew install imagesnap)")
+		fmt.Println("⚠️  Camera disabled (install: brew install imagesnap)")
 	} else {
-		fmt.Println("📷 Cámara lista")
+		fmt.Println("📷 Camera ready")
 	}
 }
 
 func main() {
 	// Wait 5 seconds before starting the application
-	fmt.Println("🛡️  MONITOR DE SEGURIDAD - Iniciando en 5 segundos...")
+	fmt.Println("🛡️  SECURITY MONITOR - Starting in 5 seconds...")
 
-	fmt.Println("🛡️  MONITOR DE SEGURIDAD - Iniciando")
+	fmt.Println("🛡️  SECURITY MONITOR - Starting")
 	checkImageSnapAvailability()
 
 	tracker := NewInputTracker()
@@ -204,11 +259,11 @@ func main() {
 
 	go func() {
 		<-sigChan
-		fmt.Println("\n🛑 Detenido.")
+		fmt.Println("\n🛑 Stopped.")
 		os.Exit(0)
 	}()
 
 	// Start monitoring (this blocks until input is detected)
-	fmt.Println("🔍 ACTIVO - Esperando actividad...")
+	fmt.Println("🔍 ACTIVE - Waiting for activity...")
 	tracker.monitor()
 }
